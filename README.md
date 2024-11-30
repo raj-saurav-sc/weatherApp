@@ -1,5 +1,3 @@
-Here is a complete `README.md` file for your project:
-
 ---
 
 # Weather Application
