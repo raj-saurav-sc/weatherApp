@@ -1,0 +1,509 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WeatherNow - Real-time Weather Information</title>
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" href="https://openweathermap.org/img/wn/02d@2x.png">
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&display=swap" rel="stylesheet">
+    <!-- CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="stylesheet" type="text/css" href="https://cdn.jsdelivr.net/npm/toastify-js/src/toastify.min.css">
+</head>
+<body>
+    <!-- Navbar -->
+    <nav class="navbar navbar-expand-lg navbar-dark">
+        <div class="container">
+            <a class="navbar-brand" href="/">
+                <i class="fas fa-cloud-sun"></i> WeatherNow
+            </a>
+            <div class="nav-buttons">
+                <button class="btn btn-outline-light" onclick="toggleUnit()">
+                    <i class="fas fa-sync-alt"></i> °C/°F
+                </button>
+            </div>
+        </div>
+    </nav>
+
+    <div class="container main-container">
+        <div class="row justify-content-center">
+            <div class="col-md-8">
+                <div class="search-card">
+                    <h1>Check Weather Anywhere</h1>
+                    <p class="text-muted text-center">Get real-time weather information for any city in the world</p>
+                    
+                    <div class="search-container">
+                        <div class="input-group mb-3">
+                            <input type="text" 
+                                   id="city" 
+                                   class="form-control" 
+                                   placeholder="Enter city name..." 
+                                   autocomplete="off"
+                                   required>
+                            <button class="btn btn-primary" type="submit" onclick="fetchWeather()">
+                                <i class="fas fa-search"></i> Search
+                            </button>
+                        </div>
+                        <div id="autocomplete-results" class="autocomplete-results"></div>
+                    </div>
+                    
+                    <div class="d-flex justify-content-between">
+                        <select id="language" class="form-select w-auto">
+                            <option value="en">English</option>
+                            <option value="es">Español</option>
+                            <option value="fr">Français</option>
+                            <option value="de">Deutsch</option>
+                            <option value="it">Italiano</option>
+                        </select>
+                        
+                        <button type="button" class="btn btn-outline-primary" onclick="getLocation()">
+                            <i class="fas fa-location-dot"></i> Use My Location
+                        </button>
+                    </div>
+                </div>
+
+                <div class="weather-card" id="weatherCard" style="display: none;">
+                    <div class="weather-header">
+                        <h2 id="cityName"></h2>
+                        <div class="weather-main">
+                            <img id="weatherIcon" src="" alt="Weather Icon">
+                            <div id="weather"></div>
+                        </div>
+                    </div>
+
+                    <div class="row g-4" id="weatherDetails"></div>
+
+                    <div class="row mt-4">
+                        <div class="col-md-6">
+                            <div class="info-box">
+                                <h4><i class="fas fa-sun"></i> Sunrise & Sunset</h4>
+                                <div id="sunTimes" class="sun-times-container-vertical"></div>
+                            </div>
+                        </div>
+                        <div class="col-md-6">
+                            <div class="info-box">
+                                <h4><i class="fas fa-leaf"></i> Air Quality</h4>
+                                <div id="airQuality" class="air-quality-container"></div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="forecast-card" id="forecastCard" style="display: none;">
+                    <h3>5-Day Forecast</h3>
+                    <div class="forecast-container" id="forecast"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>© 2024 WeatherNow. Powered by OpenWeather API</p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/toastify-js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <!-- Your existing script code here -->
+    <script>
+        let currentUnit = 'metric';
+        let lastCity = '';
+        let debounceTimer;
+
+        const cityInput = document.getElementById('city');
+        const autocompleteResults = document.getElementById('autocomplete-results');
+
+        // Input event for city search
+        cityInput.addEventListener('input', function(e) {
+            clearTimeout(debounceTimer);
+            const query = e.target.value;
+            
+            if (!query) {
+                clearSuggestions();
+                return;
+            }
+
+            debounceTimer = setTimeout(() => {
+                if (query.length >= 2) {
+                    fetchCitySuggestions(query);
+                }
+            }, 300);
+        });
+
+        function fetchCitySuggestions(query) {
+            console.log('Fetching suggestions for:', query); // Debug log
+            fetch(`/suggest-cities?query=${encodeURIComponent(query)}`)
+                .then(response => response.json())
+                .then(cities => {
+                    if (cities.length > 0) {
+                        displaySuggestions(cities);
+                    } else {
+                        autocompleteResults.innerHTML = `
+                            <div class="autocomplete-item no-results">
+                                <i class="fas fa-info-circle text-muted"></i>
+                                No cities found
+                            </div>`;
+                        autocompleteResults.classList.add('show');
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError('Failed to fetch suggestions');
+                });
+        }
+
+        function displaySuggestions(cities) {
+            const suggestionsHtml = cities.map(city => {
+                const cityData = {
+                    name: city.name,
+                    state: city.state || '',
+                    country: city.country,
+                    lat: city.lat,
+                    lon: city.lon
+                };
+                
+                return `
+                    <div class="autocomplete-item" 
+                         data-city='${JSON.stringify(cityData)}'
+                         role="button">
+                        <i class="fas fa-map-marker-alt text-primary"></i>
+                        <div class="suggestion-details">
+                            <span class="city-name">${city.name}</span>
+                            <span class="country-name">
+                                ${city.state ? city.state + ', ' : ''}${city.country}
+                            </span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+            
+            autocompleteResults.innerHTML = suggestionsHtml;
+            autocompleteResults.classList.add('show');
+
+            // Add click listeners
+            document.querySelectorAll('.autocomplete-item').forEach(item => {
+                item.addEventListener('click', function() {
+                    if (this.hasAttribute('data-city')) {
+                        const cityData = JSON.parse(this.getAttribute('data-city'));
+                        selectCity(cityData);
+                    }
+                });
+            });
+        }
+
+        function selectCity(cityData) {
+            const displayValue = cityData.state 
+                ? `${cityData.name}, ${cityData.state}, ${cityData.country}`
+                : `${cityData.name}, ${cityData.country}`;
+                
+            cityInput.value = displayValue;
+            clearSuggestions();
+            fetchWeather();
+        }
+
+        function fetchWeather() {
+            const city = cityInput.value;
+            if (!city) {
+                showError('Please enter a city name');
+                return;
+            }
+
+            setLoading(true);
+            fetch(`/weather?city=${encodeURIComponent(city)}&unit=${currentUnit}`)
+                .then(response => response.json())
+                .then(response => {
+                    if (response.status === 'error') {
+                        throw new Error(response.error);
+                    }
+                    updateWeather(response.data);
+                    lastCity = city;
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError(error.message || 'Failed to fetch weather data');
+                })
+                .finally(() => {
+                    setLoading(false);
+                });
+        }
+
+        function clearSuggestions() {
+            autocompleteResults.innerHTML = '';
+            autocompleteResults.classList.remove('show');
+        }
+
+        function showError(message) {
+            Toastify({
+                text: message,
+                duration: 3000,
+                gravity: "top",
+                position: "center",
+                style: {
+                    background: "linear-gradient(to right, #ff416c, #ff4b2b)",
+                    borderRadius: "8px",
+                    padding: "16px"
+                }
+            }).showToast();
+        }
+
+        function setLoading(loading) {
+            const searchBtn = document.querySelector('.btn-primary');
+            const locationBtn = document.querySelector('.btn-outline-primary');
+            
+            if (loading) {
+                searchBtn.innerHTML = '<span class="spinner-border spinner-border-sm"></span> Loading...';
+                searchBtn.disabled = true;
+                locationBtn.disabled = true;
+            } else {
+                searchBtn.innerHTML = '<i class="fas fa-search"></i> Search';
+                searchBtn.disabled = false;
+                locationBtn.disabled = false;
+            }
+        }
+
+        function updateTimeBasedUI() {
+            const hour = new Date().getHours();
+            const isNight = hour < 6 || hour > 18;
+            document.body.classList.toggle('night-mode', isNight);
+        }
+
+        function updateWeather(data) {
+            const weatherCard = document.getElementById('weatherCard');
+            weatherCard.style.display = 'block';
+
+            // Update city name
+            document.getElementById('cityName').innerHTML = `
+                <i class="fas fa-location-dot"></i> 
+                ${data.city}, ${data.country}
+            `;
+
+            // Update main weather display with icon
+            const weatherDiv = document.getElementById('weather');
+            weatherDiv.innerHTML = `
+                <div class="weather-main">
+                    <div class="temperature">${Math.round(data.temperature)}°${currentUnit === 'metric' ? 'C' : 'F'}</div>
+                    <div class="description">${data.description}</div>
+                    <div class="feels-like">Feels like ${Math.round(data.feels_like)}°${currentUnit === 'metric' ? 'C' : 'F'}</div>
+                </div>
+            `;
+            
+            // Update weather icon separately
+            const weatherIcon = document.getElementById('weatherIcon');
+            weatherIcon.src = `https://openweathermap.org/img/wn/${data.icon}@2x.png`;
+            weatherIcon.alt = data.description;
+
+            // Update weather details
+            document.getElementById('weatherDetails').innerHTML = `
+                <div class="col-3">
+                    <div class="detail-box">
+                        <i class="fas fa-tint"></i>
+                        <p class="detail-label">Humidity</p>
+                        <p class="detail-value">${data.humidity}%</p>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="detail-box">
+                        <i class="fas fa-wind"></i>
+                        <p class="detail-label">Wind Speed</p>
+                        <p class="detail-value">${data.wind_speed} ${currentUnit === 'metric' ? 'm/s' : 'mph'}</p>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="detail-box">
+                        <i class="fas fa-compass"></i>
+                        <p class="detail-label">Pressure</p>
+                        <p class="detail-value">${data.pressure} hPa</p>
+                    </div>
+                </div>
+                <div class="col-3">
+                    <div class="detail-box">
+                        <i class="fas fa-cloud"></i>
+                        <p class="detail-label">Cloudiness</p>
+                        <p class="detail-value">${data.clouds}%</p>
+                    </div>
+                </div>
+            `;
+
+            // Update sunrise & sunset times
+            if (data.sunrise && data.sunset) {
+                document.getElementById('sunTimes').innerHTML = `
+                    <div class="detail-box">
+                        <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2ZmYjcwMCI+PHBhdGggZD0iTTEyIDNMMTYgOEg4TDEyIDNaTTEyIDIxQzE2LjQxODMgMjEgMjAgMTcuNDE4MyAyMCAxM0g0QzQgMTcuNDE4MyA3LjU4MTcyIDIxIDEyIDIxWk0yIDExSDIyVjE1SDJWMTFaIi8+PC9zdmc+" alt="Sunrise" class="sun-icon">
+                        <div class="time-info">
+                            <p class="detail-label">Sunrise</p>
+                            <p class="detail-value">${formatTime(data.sunrise)}</p>
+                        </div>
+                    </div>
+                    <div class="detail-box">
+                        <img src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0iI2ZmYjcwMCI+PHBhdGggZD0iTTEyIDIxTDggMTZIMTZMMTIgMjFaTTEyIDNDNy41ODE3MiAzIDQgNi41ODE3MiA0IDExSDIwQzIwIDYuNTgxNzIgMTYuNDE4MyAzIDEyIDNaTTIgMTNIMjJWOUgyVjEzWiIvPjwvc3ZnPg==" alt="Sunset" class="sun-icon">
+                        <div class="time-info">
+                            <p class="detail-label">Sunset</p>
+                            <p class="detail-value">${formatTime(data.sunset)}</p>
+                        </div>
+                    </div>
+                `;
+            }
+
+            // Update air quality with proper styling and value
+            if (data.air_quality && data.air_quality.aqi !== undefined) {
+                const aqiInfo = getAQIInfo(data.air_quality.aqi);
+                document.getElementById('airQuality').innerHTML = `
+                    <div class="aqi-value" style="color: ${aqiInfo.color}">
+                        ${aqiInfo.level}
+                    </div>
+                    <div class="aqi-badge" style="background-color: ${aqiInfo.color}20; color: ${aqiInfo.color}; padding: 8px 16px; border-radius: 20px; margin-top: 8px;">
+                        AQI: ${data.air_quality.aqi}
+                    </div>
+                    ${data.air_quality.components ? `
+                        <div class="components-container">
+                            <div class="component-grid">
+                                <div class="component-item">
+                                    <span class="component-label">CO</span>
+                                    <span class="component-value">${data.air_quality.components.co.toFixed(2)} μg/m³</span>
+                                </div>
+                                <div class="component-item">
+                                    <span class="component-label">NO₂</span>
+                                    <span class="component-value">${data.air_quality.components.no2.toFixed(2)} μg/m³</span>
+                                </div>
+                                <div class="component-item">
+                                    <span class="component-label">O₃</span>
+                                    <span class="component-value">${data.air_quality.components.o3.toFixed(2)} μg/m³</span>
+                                </div>
+                                <div class="component-item">
+                                    <span class="component-label">SO₂</span>
+                                    <span class="component-value">${data.air_quality.components.so2.toFixed(2)} μg/m³</span>
+                                </div>
+                                <div class="component-item">
+                                    <span class="component-label">PM2.5</span>
+                                    <span class="component-value">${data.air_quality.components.pm2_5.toFixed(2)} μg/m³</span>
+                                </div>
+                                <div class="component-item">
+                                    <span class="component-label">PM10</span>
+                                    <span class="component-value">${data.air_quality.components.pm10.toFixed(2)} μg/m³</span>
+                                </div>
+                            </div>
+                        </div>
+                    ` : ''}
+                `;
+            } else {
+                document.getElementById('airQuality').innerHTML = `
+                    <div class="aqi-value" style="color: #999">
+                        No Data Available
+                    </div>
+                `;
+            }
+
+            if (data.air_quality) {
+                console.log('Air Quality Data:', {
+                    aqi: data.air_quality.aqi,
+                    level: data.air_quality.level
+                });
+            }
+        }
+
+        function formatTime(timestamp) {
+            const date = new Date(timestamp * 1000);
+            return date.toLocaleTimeString([], { 
+                hour: '2-digit', 
+                minute: '2-digit',
+                hour12: true 
+            });
+        }
+
+        function getAQIInfo(aqi) {
+            const aqiLevels = {
+                1: { level: 'Good', color: '#00e400' },
+                2: { level: 'Fair', color: '#ffff00' },
+                3: { level: 'Moderate', color: '#ff7e00' },
+                4: { level: 'Poor', color: '#ff0000' },
+                5: { level: 'Very Poor', color: '#7f0023' }
+            };
+            return aqiLevels[aqi] || { level: 'Unknown', color: '#999999' };
+        }
+
+        function updateBackground(weatherCondition) {
+            const conditions = {
+                'clear': 'https://images.unsplash.com/photo-1601297183305-6df142704ea2',
+                'clouds': 'https://images.unsplash.com/photo-1534088568595-a066f410bcda',
+                'rain': 'https://images.unsplash.com/photo-1519692933481-e162a57d6721',
+                'snow': 'https://images.unsplash.com/photo-1542601906990-b4d3fb778b09',
+                'thunderstorm': 'https://images.unsplash.com/photo-1605727216801-e27ce1d0cc28',
+                'mist': 'https://images.unsplash.com/photo-1543968996-ee822b8176ba'
+            };
+
+            const condition = Object.keys(conditions).find(key => 
+                weatherCondition.toLowerCase().includes(key)
+            ) || 'clear';
+
+            document.body.style.backgroundImage = `linear-gradient(rgba(0, 0, 0, 0.5), rgba(0, 0, 0, 0.5)), url('${conditions[condition]}')`;
+        }
+
+        function getLocation() {
+            if (!navigator.geolocation) {
+                showError("Geolocation is not supported by your browser");
+                return;
+            }
+
+            setLoading(true);
+            navigator.geolocation.getCurrentPosition(
+                position => {
+                    fetchWeatherByLocation(position.coords.latitude, position.coords.longitude);
+                },
+                error => {
+                    setLoading(false);
+                    handleLocationError(error);
+                },
+                {
+                    enableHighAccuracy: true,
+                    timeout: 5000,
+                    maximumAge: 0
+                }
+            );
+        }
+
+        function handleLocationError(error) {
+            let message;
+            switch(error.code) {
+                case error.PERMISSION_DENIED:
+                    message = "Please enable location access in your browser settings";
+                    break;
+                case error.POSITION_UNAVAILABLE:
+                    message = "Location information is unavailable";
+                    break;
+                case error.TIMEOUT:
+                    message = "Location request timed out";
+                    break;
+                default:
+                    message = "An unknown error occurred";
+            }
+            showError(message);
+        }
+
+        function fetchWeatherByLocation(lat, lon) {
+            fetch(`/location_weather?lat=${lat}&lon=${lon}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        throw new Error(data.error);
+                    }
+                    document.getElementById('city').value = data.city;
+                    lastCity = data.city;
+                    updateWeather(data);
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showError('Failed to fetch weather for your location');
+                })
+                .finally(() => setLoading(false));
+        }
+    </script>
+</body>
+</html>
